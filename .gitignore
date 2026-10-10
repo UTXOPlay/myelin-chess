@@ -1,0 +1,5 @@
+/target/
+/data/
+*.log
+/node_modules/
+/test-results/

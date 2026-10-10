@@ -1,0 +1,15 @@
+{
+  "name": "myelin-chess",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui": "node tests/ui-smoke.mjs"
+  },
+  "devDependencies": {
+    "happy-dom": "20.14.6"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
