@@ -1,0 +1,19 @@
+{
+  "name": "myelin-chess",
+  "port": 8881,
+  "runtimePort": 8781,
+  "games": [
+    {
+      "id": "chess",
+      "webRoot": "dist/chess",
+      "runtimePath": "",
+      "rooms": true,
+      "socket": false
+    }
+  ],
+  "runtimeCommand": [
+    "target/release/myelin-chess"
+  ],
+  "manifest": "games/chess/Cargo.toml",
+  "plugin": "./chess.mjs"
+}

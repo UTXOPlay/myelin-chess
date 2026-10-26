@@ -3,3 +3,13 @@
 *.log
 /node_modules/
 /test-results/
+
+# Standalone game host
+/node_modules/
+/dist/
+/data/
+/target/
+/artifacts/
+.env
+*.br
+/deploy/runtime.env

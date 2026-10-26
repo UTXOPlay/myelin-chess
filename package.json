@@ -1,15 +1,21 @@
 {
-  "name": "myelin-chess",
-  "version": "0.1.0",
+  "name": "myelin-chess-web",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test:ui": "node tests/ui-smoke.mjs"
+    "build": "node tools/build-web.mjs",
+    "start": "node host/start.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:host": "node --test host/*.test.mjs",
+    "build:native": "cargo build --release --locked --manifest-path games/chess/Cargo.toml --target-dir target"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "ws": "8.22.0"
   },
   "devDependencies": {
-    "happy-dom": "20.14.6"
-  },
-  "engines": {
-    "node": ">=22"
+    "esbuild": "0.28.2",
+    "chess.js": "1.4.0"
   }
 }

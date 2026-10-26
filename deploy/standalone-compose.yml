@@ -1,0 +1,26 @@
+services:
+  game:
+    image: myelin-chess:standalone
+    container_name: myelin-chess
+    restart: unless-stopped
+    init: true
+    env_file: runtime.env
+    environment:
+      WEB_PORT: '8080'
+      BIND: 0.0.0.0
+      DATA_DIR: /app/data
+    volumes:
+      - ../data:/app/data
+    networks: [games]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  games: {external: true, name: utxoplay-games}

@@ -1,73 +1,42 @@
-# The Quiet Board · Myelin Chess
+# myelin-chess
 
-![Original game environment](web/assets/study.png)
+Independent game service for chess. Source: https://github.com/UTXOPlay/myelin-chess.
 
-A playable browser game backed by **real Rust `myelin-session`**, signed local PoA blocks, RocksDB persistence, and deterministic replay. An independent Myelin Labs application; the Myelin core repository is pinned, not vendored or modified.
+The browser client, native runtime, game rules, assets and tests live here. The game runs without a UTXOPlay store checkout. Original source attribution and licenses are retained; see PROVENANCE.md and the game directories. Myelin supplies off-chain native replay, not CKB settlement.
 
-- 双人同屏国际象棋；合法落点、将军/将死、易位、吃过路兵、升变选择。
-- 投降与三次重复 / 五十步规则的主动和棋声明。
-- 棋盘翻转、走子记录、逐步回放、可下载对局证据。
-- 原创象牙与深胡桃木棋子、暖色棋室、竖琴配乐。
+## Build and run
 
-## Run
+Requires Node 22.23+, Rust 1.97.1, Clang/libclang, C/C++ tooling, CMake, pkg-config and protobuf compiler for native builds.
 
-Prerequisites: Rust 1.92.0 (installed through `rustup`), a C/C++ compiler, Clang/libclang, and Git. On Ubuntu: `sudo apt install build-essential clang libclang-dev pkg-config`. The first build includes RocksDB and may take several minutes. No Node.js, wallet, CKB node, or external API key is needed.
-
-```bash
-git clone https://github.com/Myelin-Labs/myelin-chess.git
-cd myelin-chess
-cargo run --locked
+```sh
+npm ci
+npm run build
+npm test
+npm run test:host
+npm run build:native
+RUNTIME_TOKEN=<stable-random-secret-at-least-32-characters> npm start
 ```
 
-Open **http://127.0.0.1:8781**. Two tabs share the active local session. The service intentionally binds to loopback; this first version is local play, without remote player authentication. Music starts only after pressing **Sound on**. Art, music, and scripts are served locally, with no runtime CDN dependency.
+Open http://127.0.0.1:8881/games/chess/. The host assigns a signed browser guest cookie; no wallet or store is required. Each configured game has its own `/games/<id>/` URL. `WEB_PORT` and `GAME_ORIGIN` configure the host. `DATA_DIR` holds native account saves; preserve it and the secret across restarts. Native services listen only on loopback. Use HTTPS and the exact `GAME_ORIGIN` when exposing the host publicly.
 
-```bash
-# Separate data directory / port
-DATA_DIR=/tmp/myelin-chess-demo PORT=8781 cargo run --locked
+`RUNTIME_URL` can point to an already-running private native runtime; then the host does not start a child process. `RUNTIME_BINARY` overrides the native executable for a local build. `SESSION_SECRET` optionally separates cookie signing from the runtime token. Keep all secrets server-side. UTXOPlay integration uses authenticated `X-Runtime-Token` / `X-UTXOPlay-Account` requests to this host, preserving original account IDs. Independent browser guests have separate identities.
+
+## Source layout and compatibility
+
+`game-host.json` lists games, their browser package paths, native URL prefixes and native launch command. `games/` retains the original source layout so Myelin `include_bytes!` inputs remain byte-for-byte identical. `tools/build-web.mjs` packages each game's assets into its own URL namespace; it does not fetch store files. Shared presentation helpers are owned snapshots in this repository.
+
+The default native build uses pinned Cargo lockfiles. Do not change profile inputs or replace an engine/verifier pair for existing signed exports. Rebuild the browser with `npm run build` after editing its source. Historical release documentation may refer to the pre-migration store layout.
+
+## Deploy
+
+```sh
+docker build -f deploy/Standalone.Dockerfile -t myelin-chess:standalone .
+# Create the shared private network once, then provide an untracked runtime.env.
+docker compose -f deploy/standalone-compose.yml up -d
 ```
 
-The default `data/` directory stores the generated authority key, active-session pointer, and RocksDB history. It is ignored by Git. A new match creates a new session identity and retains previous records in the database; export before switching if you want a convenient standalone copy. Restarting the server audits signatures and replays the active history before accepting new actions. Changing the bound program or dependency lock requires a new data directory; old sessions must be replayed with their original build.
+`deploy/runtime.env` supplies `RUNTIME_TOKEN` and `GAME_ORIGIN`; it is ignored by Git. Configure the store's service URL as `http://myelin-chess:8080` on the private `utxoplay-games` network. Bind or proxy host port 8080 only when standalone public play is wanted. Mount existing native data instead of initializing a new game history. The deployment does not expose native runtime ports.
 
-## What actually passes through Myelin
+## Existing online tables
 
-```text
-Browser action + expected session/head
-  → validated FrameInput
-  → Game TransitionExecutor (isolated cloned state)
-  → SessionChain.prepare_block
-  → secp256k1 PoA seal + Myelin finality verification
-  → atomic RocksSessionStore commit
-  → browser state + signed block / state commitments
-```
-
-Each accepted action advances one frame. Illegal or stale actions do not advance the head. Genesis binds the game source, adapter source and `Cargo.lock`; frames bind ordered input, logical time, pre/post state, and execution evidence. A session is bounded to 1,000 actions.
-
-**Execution boundary:** this is an application-frame / host-executor demo. Frames contain game commands and **zero CellTxs**; CKB-VM cycle usage is zero because no CKB scripts execute. Myelin's `ApplicationVmProfile` reserves strict capabilities for CellTx execution; it does not certify this host game. The court-profile commitment explicitly identifies host replay only. Local PoA finality is a single local authority, not player consent, permissionless consensus, CKB settlement, or a fraud proof. There are no deposits, withdrawals, token rewards, or chain submissions.
-
-## Export and independently verify
-
-Use **Save match** to download `session.json`, containing the genesis configuration, public authority, versioned signed records, and expected head. No private key is exported.
-
-```bash
-cargo run --locked -- verify session.json
-```
-
-Verification reconstructs the game from genesis in a temporary database, checks the bound program, re-executes every action, checks every frame/block and signature, and compares the terminal head. It requires neither the original database nor the signing key. This checks consistency relative to the exported authority; authenticate that public key separately if verifying another operator's evidence.
-
-## Validate
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo test --locked
-cargo build --locked
-python3 tests/http_smoke.py target/debug/myelin-chess
-```
-
-Optional DOM integration tests (Node.js 22+): `npm ci && npm run test:ui`. These execute UI handlers against the real server in a DOM test environment; they do not replace visual browser QA.
-
-Tests cover gameplay, deterministic replay, signed persistence/restart, stale requests, tampered evidence and the actual HTTP API. This is casual untimed hot-seat chess; there is no AI, matchmaking, tournament clock, or remote seat ownership.
-
-## Art, music and references
-
-See [ASSETS.md](ASSETS.md) for per-file provenance, licenses, and production prompts, and [REFERENCES.md](REFERENCES.md) for the upstream references and implementation choices. Music credits are also available inside the game. Application code is MIT; third-party audio retains its CC BY 4.0 license.
+Set `ROOMS_DATA_DIR` to a persistent directory for `rooms.sqlite`. Import old store membership with `node tools/import-store-rooms.mjs STORE_BACKUP.sqlite ROOMS.sqlite` while writers are stopped. This preserves room IDs and seats and does not rewrite native session files. Native room IDs continue to use the original account derivation.

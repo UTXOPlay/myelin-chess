@@ -1,0 +1,10 @@
+.git
+node_modules
+**/node_modules
+**/target
+**/data
+artifacts
+dist
+.env
+**/runtime.env
+*.log
