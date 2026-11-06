@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {commandRequest} from "../games/chess/web/commands.mjs";
 import { chooseMove } from "../games/chess/client/strategy.mjs";
 const base = process.env.STORE_URL || "http://127.0.0.1:19110";
 let cookie = "";
@@ -32,21 +33,13 @@ for (let i = 0; i < 24 && !state.game.result; i++) {
     random: () => 0,
   });
   assert.ok(move);
-  const r = await req(route + "/action", {
-    action: { type: "move", uci: move },
-    expected_block: state.session.block_hash,
-    session_id: state.session.id,
-  });
+  const r = await req(route + "/action", commandRequest(state, { type: "move", uci: move }));
   assert.equal(r.status, 200, JSON.stringify(r.data));
   state = r.data;
 }
 assert.equal(
   (
-    await req(route + "/action", {
-      action: { type: "move", uci: "e2e4" },
-      expected_block: original.session.block_hash,
-      session_id: original.session.id,
-    })
+    await req(route + "/action", commandRequest(original, { type: "move", uci: "e2e4" }))
   ).status,
   400,
 );
@@ -63,13 +56,9 @@ console.log(
   state.game.moves.length,
   "legal recorded plies; stale rejection, signed replay, FEN and export match",
 );
-state = (await req(route + "/new", {})).data;
+state = (await req(route + "/new", commandRequest(state, {type:"new_game"}))).data;
 for (const uci of ["f2f3", "e7e5", "g2g4", "d8h4"]) {
-  const r = await req(route + "/action", {
-    action: { type: "move", uci },
-    expected_block: state.session.block_hash,
-    session_id: state.session.id,
-  });
+  const r = await req(route + "/action", commandRequest(state, { type: "move", uci }));
   assert.equal(r.status, 200);
   state = r.data;
 }

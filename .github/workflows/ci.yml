@@ -1,25 +1,52 @@
 name: verify
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   game-and-session:
     runs-on: ubuntu-24.04
     env:
       CARGO_BUILD_JOBS: 2
+      CARGO_TARGET_DIR: ${{ github.workspace }}/game/target
+    defaults:
+      run:
+        working-directory: game
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: game
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Myelin-Labs/Myelin
+          ref: b5fdccbae56be004fffdce45235709fa0c14ac29
+          path: Myelin
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.92.0
         with:
           components: rustfmt, clippy
-      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential pkg-config
+      - run: sudo apt-get update && sudo apt-get install -y clang libclang-dev build-essential cmake pkg-config protobuf-compiler
       - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --locked --all-targets -- -D warnings
-      - run: cargo test --locked
-      - run: cargo build --locked
-      - run: python3 tests/http_smoke.py target/debug/myelin-chess
+        with:
+          workspaces: game/games/chess -> ../../target
+      - run: cargo fmt --manifest-path games/chess/Cargo.toml --all -- --check
+      - run: cargo clippy --manifest-path games/chess/Cargo.toml --locked --all-targets -- -D warnings
+      - run: cargo test --manifest-path games/chess/Cargo.toml --locked
+      - run: cargo build --manifest-path games/chess/Cargo.toml --locked
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: game/package-lock.json
       - run: npm ci
-      - run: npm run test:ui
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:host
+      - run: node tests/chess-client-flow.mjs
+      - run: CHESS_BINARY="$CARGO_TARGET_DIR/debug/myelin-chess" node tests/chess-online-flow.mjs

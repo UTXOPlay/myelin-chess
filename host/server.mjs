@@ -57,7 +57,7 @@ export function createGameHost({config,origin,runtimeUrl,runtimeToken,sessionSec
   const base='/games/'+game.id;
   app.use(base+'/api',needUser,async(req,res)=>{
    const endpoint=req.path;
-   if(!((req.method==='GET'&&['/state','/export'].includes(endpoint))||(req.method==='POST'&&['/new','/action','/replay'].includes(endpoint))))return res.status(404).json({error:'Unknown game endpoint'});
+   if(!((req.method==='GET'&&(['/state','/export'].includes(endpoint)||/^\/commands\/[a-f0-9]{64}\/[a-f0-9]{64}$/.test(endpoint)))||(req.method==='POST'&&['/new','/action','/replay'].includes(endpoint))))return res.status(404).json({error:'Unknown game endpoint'});
    if(req.method==='POST'&&limited(req.account.id+':'+game.id+':'+endpoint,endpoint==='/new'?10:1200,60000))return res.status(429).json({error:'Please wait before trying again.'});
    if(req.body?.type==='create'&&limited(req.account.id+':'+game.id+':rooms',20,3600000))return res.status(429).json({error:'Room limit reached.'});
    try{

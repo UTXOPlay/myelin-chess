@@ -1,16 +1,10 @@
 // Shipped controller with DOM/transport doubles; real rendering and native replay are separate checks.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { JSDOM } from "jsdom";
 import path from "node:path";
 import { build } from "esbuild";
 import { Chess } from "chess.js";
-const require = createRequire(
-    process.env.ARCADE_TEST_MODULES
-      ? path.resolve(process.env.ARCADE_TEST_MODULES, "../package.json")
-      : import.meta.url,
-  ),
-  { JSDOM } = require("jsdom");
 const result = await build({
   entryPoints: ["games/chess/web/app.js"],
   bundle: true,
@@ -48,6 +42,7 @@ const dom = new JSDOM(readFileSync("games/chess/web/index.html", "utf8"), {
   }),
   w = dom.window,
   d = w.document;
+w.TextDecoder = TextDecoder;
 w.matchMedia = () => ({ matches: false });
 w.HTMLElement.prototype.setPointerCapture = () => {};
 w.HTMLDialogElement.prototype.showModal = function () {
@@ -66,9 +61,12 @@ let actions = 0,
   worker,
   verified = true,
   replyDelay = false,
-  failMove = true,
+  failMove = 2,
   pending;
 const snapshots = [chess.fen()];
+const receipts = new Map();
+let sessionId = "01".repeat(32);
+const profileId = "02".repeat(32);
 const state = () => ({
   game: {
     fen: chess.fen(),
@@ -83,7 +81,7 @@ const state = () => ({
     in_check: chess.isCheck(),
     can_claim_draw: false,
   },
-  session: { id: "test", block_hash: String(actions), actions },
+  session: { id: sessionId, profile: profileId, block_hash: String(actions), actions },
 });
 class Worker {
   constructor() {
@@ -99,11 +97,17 @@ class Worker {
   }
 }
 w.Worker = Worker;
+function record(b) {
+  const intent = {action:b.action,expected_cursor:b.expected_cursor,expected_block:b.expected_block,actor:{account:"03".repeat(32),seat:"solo"}};
+    const report = {command_id:b.command_id,session_id:b.session_id,entry:{original:{identity:{id:Array.from(Buffer.from(b.command_id,"hex"))},scope:{session_id:Array.from(Buffer.from(b.session_id,"hex")),application_profile:Array.from(Buffer.from(profileId,"hex"))},canonical_command:Array.from(Buffer.from(JSON.stringify(intent)))},status:{Committed:{outcome:{Succeeded:[]}}}}};
+    receipts.set(b.command_id,report);
+  return report;
+}
 w.fetch = async (url, options) => {
   let payload;
   if (url.endsWith("/action")) {
     if (failMove) {
-      failMove = false;
+      failMove--;
       return {
         ok: false,
         json: async () => ({ error: "Temporary storage failure" }),
@@ -119,10 +123,19 @@ w.fetch = async (url, options) => {
     actions++;
     snapshots.push(chess.fen());
     if (replyDelay) await new Promise((r) => (pending = r));
-    payload = state();
-  } else if (url.endsWith("/replay"))
+    const report = record(b);
+    payload = {...state(),command:report};
+  } else if(url.endsWith("/new")) {
+    const b = JSON.parse(options.body);
+    assert.equal(b.action.type, "new_game");
+    const report = record(b);
+    sessionId = "04".repeat(32); actions = 0;
+    snapshots.splice(0, snapshots.length, chess.fen());
+    payload = {...state(), command:report};
+  } else if(url.includes("/commands/"))payload=receipts.get(url.split("/").at(-1))||{entry:null};
+  else if (url.endsWith("/replay"))
     payload = { verified, frames: actions, positions: [...snapshots] };
-  else if(url==="/api/me")payload={user:{guest:true}};
+  else if(url==="/api/me")payload={user:{guest:true,id:"03".repeat(32)}};
   else payload = state();
   return { ok: true, json: async () => payload };
 };
@@ -211,7 +224,7 @@ try {
   promotion.click();
   promotion.click();
   await settle();
-  assert.equal(actions, before + 1);
+  assert.equal(actions, 1);
   assert.equal(d.querySelector("[data-square=g8]").dataset.piece, "Q");
   console.log(
     "PASS shipped Chess controller: worker cancellation/stale replies, native moves, illegal and duplicate input, failed verification, read-only review, SAN journal",
