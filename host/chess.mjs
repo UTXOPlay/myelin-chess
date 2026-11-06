@@ -7,8 +7,10 @@ export function createChessPlugin(dataDir){
   mkdirSync(dataDir,{recursive:true,mode:0o700});
   const db=new DatabaseSync(path.join(dataDir,'rooms.sqlite'));
   db.exec('PRAGMA journal_mode=WAL;');
-  const rooms=installChessRooms({...options,db});
-  return {db,close(){rooms.close();db.close();}};
+  try {
+   const rooms=installChessRooms({...options,db});
+   return {db,close(){rooms.close();db.close();}};
+  } catch(error) { db.close(); throw error; }
  };
 }
 export function install(options){return createChessPlugin(process.env.ROOMS_DATA_DIR||path.join(process.env.DATA_DIR||'data','rooms'))(options);}

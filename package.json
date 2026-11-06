@@ -15,7 +15,8 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
+    "chess.js": "1.4.0",
     "esbuild": "0.28.2",
-    "chess.js": "1.4.0"
+    "jsdom": "26.1.0"
   }
 }

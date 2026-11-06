@@ -1,4 +1,5 @@
 import { ChessEngine } from "./engine-client.mjs";
+import { CommandClient, RoomClient } from "./commands.mjs";
 import { notation, squareAt, preferences } from "./strategy.js";
 import { startPolling } from "./performance.mjs";
 import { toggleSound, volume, sound, savedVolume } from "./audio.js";
@@ -12,6 +13,11 @@ const engine = new ChessEngine();
 let roomId = new URLSearchParams(location.hash.slice(1)).get("table"), roomStream=null, roomConnected=false;
 if (!/^[a-f0-9]{24}$/.test(roomId||"")) roomId=null;
 const endpoint = name => roomId ? `/games/chess/api/rooms/${roomId}/${name}` : `/games/chess/api/${name}`;
+let commandAccount;
+const commandChannel = () => commandAccount ? `${commandAccount}/${roomId || "solo"}` : null;
+const commands = new CommandClient((name, body) => api(endpoint(name), body), sessionStorage, commandChannel);
+const soloCommands = new CommandClient((name, body) => api(`/games/chess/api/${name}`, body), sessionStorage, () => commandAccount ? `${commandAccount}/solo` : null);
+const roomCommands = new RoomClient(api, sessionStorage, () => commandAccount ? `${commandAccount}/rooms` : null);
 const roomTurn = () => !roomId || !!(roomConnected && data?.room?.ready && data.room.color === data.game.turn);
 
 let data,
@@ -326,17 +332,21 @@ async function act(action, computer = false) {
   busy = true;
   $("#board").setAttribute("aria-busy", "true");
   try {
-    data = await api(endpoint("action"), {
-      action,
-      expected_block: data.session.block_hash,
-      session_id: data.session.id,
-    });
+    if (commands.pending()) {
+      data = await commands.recover(data);
+      positions = null;
+      render();
+      return;
+    }
+    data = await commands.submit(data, action);
     positions = null;
     const captured =
       action.uci &&
       new Map(Object.entries(readBoard(beforeFen))).get(action.uci.slice(2, 4));
     sound(data.game.result ? "win" : captured ? "hit" : "move");
     render();
+    const rejection = data.command?.entry?.status?.Committed?.outcome?.Rejected;
+    if (rejection) toast(new TextDecoder().decode(new Uint8Array(rejection)));
     animateMove(action.uci);
   } catch (e) {
     toast(e.message);
@@ -373,7 +383,12 @@ $("#new").onclick = async () => {
     return;
   busy = true;
   try {
-    data = await api("/games/chess/api/new", {});
+    const recoveredSolo = !roomId && commands.pending();
+    if (data) data = await commands.recover(data);
+    const solo = await api("/games/chess/api/state");
+    data = recoveredSolo ? solo : soloCommands.pending()
+      ? await soloCommands.recover(solo)
+      : await soloCommands.submit(solo, {type: "new_game"});
     disconnectRoom();
     roomId=null;history.replaceState(null,"",location.pathname);
     pref = {
@@ -676,7 +691,8 @@ async function refresh() {
   cancelBot();
   $("#retry").disabled = true;
   try {
-    data = await api(endpoint("state"));
+    if (roomCommands.pending()) { await enterRoom(await roomCommands.recover(null)); return; }
+    data = await commands.recover(await api(endpoint("state")));
     globalThis.UTXOPlayLoader?.session();
     positions = null;
     reviewIndex = null;
@@ -1101,6 +1117,7 @@ function connectRoom(){
 }
 async function enterRoom(next){
   cancelBot();disconnectRoom();roomId=next.room.id;data=next;
+  data=await commands.recover(data);
   flipped=next.room.color==="black";selected=null;reviewIndex=null;positions=null;replaying=false;replayToken++;
   history.replaceState(null,"",location.pathname+"#table="+roomId);
   $("#opponent").value="online";$("#human-color").value=next.room.color;
@@ -1111,20 +1128,22 @@ async function enterRoom(next){
 async function createRoom(){
   if(busy)return;
   busy=true;cancelBot();
-  try{await enterRoom(await api("/games/chess/api/rooms",{color:$("#human-color").value}));toast("Your table is ready. Copy the invitation for your friend.");}
+  try{await enterRoom(await roomCommands.create($("#human-color").value));toast("Your table is ready. Copy the invitation for your friend.");}
   catch(e){toast(e.message);}finally{busy=false;}
 }
 async function joinRoom(id){
   if(busy)return;
   if(!/^[a-f0-9]{24}$/.test(id||"")){toast("Paste a Quiet Board invitation link.");return;}
   busy=true;cancelBot();
-  try{await enterRoom(await api(`/games/chess/api/rooms/${id}/join`,{}));}
+  try{await enterRoom(await roomCommands.join(id));}
   catch(e){toast(e.message);$("#connection").hidden=false;if(!data)globalThis.UTXOPlayLoader?.fail("session");}
   finally{busy=false;}
 }
 async function startTable(){
   try{
-    const me=await api("/api/me");if(!me.user)await api("/api/guest",{});
+    let me=await api("/api/me");if(!me.user)me=await api("/api/guest",{});
+    commandAccount=me.user.id;
+    if(roomCommands.pending()){await enterRoom(await roomCommands.recover(null));return;}
     if(roomId){await joinRoom(roomId);return;}
     await refresh();
   }catch(e){globalThis.UTXOPlayLoader?.fail("session");toast(e.message);$("#connection").hidden=false;}
