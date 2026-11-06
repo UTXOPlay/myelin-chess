@@ -23,6 +23,13 @@ paths then resolve inside this unpacked release. Keep `source.json` with the tar
 it identifies the exact uncommitted framework candidate rather than claiming a
 published upstream commit. Updating the dependency changes the checksum explicitly.
 
+The existing CI workflow checks out the exact public Myelin commit pinned in
+`.github/workflows/ci.yml` beside this repository and runs the current native,
+browser-controller and real HTTP integration checks. Its checkout identity is
+separate from the frozen source package used by the release container above.
+The retired standalone-web Python/happy-dom smoke scripts are removed; they
+used the previous server layout and command shape.
+
 ```sh
 npm ci
 npm run build
